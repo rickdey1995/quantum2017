@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -269,6 +269,7 @@ export default function AdminDashboardPage() {
   }
   
   return (
+    <>
     <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-8">Admin Dashboard</h1>
@@ -402,5 +403,6 @@ export default function AdminDashboardPage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

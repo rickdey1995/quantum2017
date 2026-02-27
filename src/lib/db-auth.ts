@@ -311,9 +311,26 @@ export async function logAuditAction(data: {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
 
+  // Ensure we don't violate the foreign key on audit_logs.user_id
+  // If a userId is provided but does not exist in `users` (e.g., it's an admin from a separate table),
+  // store NULL in the `user_id` column and keep the entityId to reference the admin.
+  let userIdToInsert: string | null = null;
+  if (data.userId) {
+    try {
+      const existing = await executeQuery(`SELECT id FROM users WHERE id = ?`, [data.userId]);
+      if (existing && existing.length > 0) {
+        userIdToInsert = data.userId;
+      } else {
+        userIdToInsert = null;
+      }
+    } catch (e) {
+      userIdToInsert = null;
+    }
+  }
+
   const values = [
     id,
-    data.userId || null,
+    userIdToInsert,
     data.action,
     data.entityType || null,
     data.entityId || null,
