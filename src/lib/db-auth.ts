@@ -323,3 +323,19 @@ export async function logAuditAction(data: {
 
   await executeInsert(query, values);
 }
+
+// --- Password Update ---
+
+export async function updatePassword(
+  userId: string,
+  newPassword: string
+): Promise<void> {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('Password must be at least 6 characters');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  const query = 'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+
+  await executeUpdate(query, [passwordHash, userId]);
+}

@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { User } from "@/lib/schema";
-import { getUsers, addUser, updateUserAction, deleteUserAction } from "@/app/actions";
+import { getUsers, addUser, updateUserAction, deleteUserAction, changeAdminPassword } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -25,6 +25,10 @@ export default function AdminDashboardPage() {
   const [dialogMode, setDialogMode] = useState<"add" | "manage" | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [newUser, setNewUser] = useState<{name: string, email: string, plan: User['plan'], password?: string}>({ name: "", email: "", plan: "Starter" });
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
   const { token, user, loading: authLoading } = useAuth();
@@ -132,6 +136,43 @@ export default function AdminDashboardPage() {
           variant: "destructive",
         });
       }
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 6 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Error",
+        description: "Passwords do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!token) return;
+
+    setIsChangingPassword(true);
+    try {
+      await changeAdminPassword(token, newPassword);
+      toast({ title: "Success!", description: "Your password has been changed." });
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordDialog(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPassword(false);
     }
   }
 
@@ -253,6 +294,19 @@ export default function AdminDashboardPage() {
               <p className="text-xs text-muted-foreground">Manage your users</p>
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader className="space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Admin Account</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm font-mono mb-3 p-2 bg-muted rounded">
+                {user?.email}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setShowPasswordDialog(true)} className="w-full">
+                Change Password
+              </Button>
+            </CardContent>
+          </Card>
         </div>
         
         <Card>
@@ -306,6 +360,46 @@ export default function AdminDashboardPage() {
       </div>
       <DialogContent className="sm:max-w-[425px]">
         {renderDialogContent()}
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Change Admin Password</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="current-password">Current Password (admin@123)</Label>
+            <Input id="current-password" type="text" value="admin@123" disabled className="text-muted-foreground" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="new-password">New Password</Label>
+            <Input 
+              id="new-password" 
+              type="password" 
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="confirm-password">Confirm Password</Label>
+            <Input 
+              id="confirm-password" 
+              type="password" 
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>Cancel</Button>
+          <Button onClick={handleChangePassword} disabled={isChangingPassword}>
+            {isChangingPassword ? "Changing..." : "Change Password"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

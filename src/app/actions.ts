@@ -10,6 +10,7 @@ import {
   createSubscription,
   updateSubscription,
   logAuditAction,
+  updatePassword,
 } from '@/lib/db-auth';
 import { UserSchema, type User, type Subscription } from '@/lib/schema';
 import { revalidatePath } from 'next/cache';
@@ -214,4 +215,28 @@ export async function deleteUserAction(token: string, userId: string) {
   });
 
   revalidatePath('/admin/dashboard');
+}
+
+// --- Admin Account Settings ---
+
+export async function changeAdminPassword(
+  token: string,
+  newPassword: string
+) {
+  const userId = await verifyAdminRole(token);
+
+  // Update password using utility function
+  await updatePassword(userId, newPassword);
+
+  // Log the action
+  await logAuditAction({
+    userId,
+    action: 'admin_password_changed',
+    entityType: 'user',
+    entityId: userId,
+    changes: { password_updated: true },
+  });
+
+  revalidatePath('/admin/dashboard');
+  return { success: true, message: 'Password changed successfully' };
 }
