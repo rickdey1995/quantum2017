@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT INTO users (id, email, password_hash, name, role, plan, status) VALUES (
   '00000000-0000-0000-0000-000000000001',
   'admin@quantumalphaindia.com',
-  '$2a$10$3C8JV9J7K8L9N0P1Q2R3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C',
+  '$2a$10$GI8LTh9dR/ANfcThNM5EWOg70XnQ6hqQHXrpo72lDpY5WOk2Rspw2',
   'Quantum Alpha Admin',
   'admin',
   'Starter',
