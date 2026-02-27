@@ -8,7 +8,7 @@ import Image from "next/image";
 import { CheckCircle, Bell } from "lucide-react";
 import { format } from "date-fns";
 import type { Subscription, Plan } from "@/lib/schema";
-import { getSubscription, activateSubscription } from "@/app/actions";
+import { getUserSubscription, activateSubscription } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
@@ -38,7 +38,7 @@ export default function DashboardPage() {
         if (!user) return;
         setIsLoading(true);
         try {
-            const sub = await getSubscription();
+            const sub = await getUserSubscription();
             if (sub) {
                 setActiveSubscription(sub);
             }

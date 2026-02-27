@@ -67,7 +67,7 @@ export async function createUserInDb(userData: {
   return user;
 }
 
-export async function getSubscription(): Promise<Subscription | null> {
+export async function getUserSubscription(): Promise<Subscription | null> {
   const userId = await getCurrentUserId();
   return await getSubscription(userId);
 }
