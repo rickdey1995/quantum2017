@@ -456,10 +456,26 @@ export async function saveLandingPageImage(data: {
   file_size: number;
   mime_type: string;
   section: string;
-  uploaded_by: string;
+  uploaded_by?: string | null;
   upload_ip?: string;
 }): Promise<LandingPageImageRecord> {
   const id = randomUUID();
+
+  // validate / sanitize uploaded_by - only keep if it exists in users table
+  let uploadedByToStore: string | null = null;
+  if (data.uploaded_by) {
+    try {
+      const existing = await executeQuery(`SELECT id FROM users WHERE id = ?`, [data.uploaded_by]);
+      if (existing && existing.length > 0) {
+        uploadedByToStore = data.uploaded_by;
+      } else {
+        // admin or non-user; store null instead
+        uploadedByToStore = null;
+      }
+    } catch (err) {
+      uploadedByToStore = null;
+    }
+  }
 
   const query = `
     INSERT INTO landing_page_images 
@@ -475,7 +491,7 @@ export async function saveLandingPageImage(data: {
     data.file_size,
     data.mime_type,
     data.section,
-    data.uploaded_by,
+    uploadedByToStore,
     data.upload_ip || null,
   ];
 
@@ -489,7 +505,7 @@ export async function saveLandingPageImage(data: {
     file_size: data.file_size,
     mime_type: data.mime_type,
     section: data.section,
-    uploaded_by: data.uploaded_by,
+    uploaded_by: uploadedByToStore || '',
     upload_ip: data.upload_ip,
     created_at: new Date(),
     updated_at: new Date(),
