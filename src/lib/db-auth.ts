@@ -600,7 +600,9 @@ export async function getAllPackages(activeOnly: boolean = false): Promise<Packa
         console.warn('Invalid JSON in package.features for id', pkg.id, e);
       }
     }
-    return { ...pkg, features };
+    // ensure price is a number (mysql returns as string for DECIMAL)
+    const price = typeof pkg.price === 'string' ? parseFloat(pkg.price) : pkg.price;
+    return { ...pkg, features, price };
   });
 }
 
@@ -620,7 +622,8 @@ export async function getPackageById(id: string): Promise<Package | null> {
       console.warn('Invalid JSON in package.features for id', pkg.id, e);
     }
   }
-  return { ...pkg, features };
+  const price = typeof pkg.price === 'string' ? parseFloat(pkg.price) : pkg.price;
+  return { ...pkg, features, price };
 }
 
 export async function getPackageByName(name: string): Promise<Package | null> {
@@ -639,7 +642,8 @@ export async function getPackageByName(name: string): Promise<Package | null> {
       console.warn('Invalid JSON in package.features for id', pkg.id, e);
     }
   }
-  return { ...pkg, features };
+  const price = typeof pkg.price === 'string' ? parseFloat(pkg.price) : pkg.price;
+  return { ...pkg, features, price };
 }
 
 export async function updatePackage(
