@@ -1,4 +1,5 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,17 +9,97 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { traders, instruments } from "@/lib/data";
 import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 import Link from "next/link";
+import type { LandingSettings } from '@/lib/schema';
 
 export default function Home() {
-  const whyEtradeItems = [
-    { text: "Copy trading to your fingertips", icon: Copy },
-    { text: "Multiple asset access", icon: LayoutGrid },
-    { text: "Integrated brokers", icon: Briefcase },
-    { text: "Advanced analytics", icon: BarChart2 },
-  ];
+  const defaultSettings = {
+    hero: {
+      title: "The Social Intelligence Platform\nthat helps you invest in a smart way",
+      subtitle: "Go long or short? Go Etrade! Connect with experienced traders and boost your trading journey.",
+      buttonText: "Join Now",
+      image: "/Home banner image.png",
+    },
+    stats: [
+      { label: "Countries", value: "150+" },
+      { label: "Accounts", value: "30M+" },
+      { label: "Leaders", value: "2M+" },
+    ],
+    trust: {
+      title: "Trust is… Trading is not easy",
+      points: [
+        "Staying focused takes time",
+        "Building and maintaining strategy is hard",
+        "Many investors end up losing",
+      ],
+      image: "/2nd image.png",
+    },
+    why: {
+      title: "Why Etrade?",
+      subtitle: "Powerful tools to grow your portfolio",
+      items: [
+        "Copy trading to your fingertips",
+        "Multiple asset access",
+        "Integrated brokers",
+        "Advanced analytics",
+      ],
+    },
+    leadersTitle: "Etrade Top Leaders",
+    instrumentsTitle: "Wide variety of instruments",
+    benefits: {
+      title: "Benefits",
+      subtitle: "Everything you need for smarter trading",
+      items: [
+        "Transparent platform",
+        "Advanced tools",
+        "Innovative solutions",
+        "Customer support",
+        "Learning environment",
+        "Unique features",
+      ],
+    },
+    design: {
+      // primaryColor was previously supported but removed after
+      // admin feedback. we only keep font overrides now to avoid
+      // runtime problems with tailwind variables becoming
+      // transparent when the value is empty.
+      globalFont: "",
+    },
+  };
+
+  const [settings, setSettings] = useState<LandingSettings>(defaultSettings as LandingSettings);
+  const whyEtradeItems = settings.why?.items || [];
+  const whyServices = settings.why?.services || [];
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/landing-settings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Object.keys(data).length) {
+            setSettings(prev => ({ ...prev, ...data }));
+          }
+        }
+      } catch (err) {
+        console.error('failed loading landing settings', err);
+      }
+    };
+    load();
+  }, []);
+
+  // apply design overrides (font only)
+  useEffect(() => {
+    if (settings.design?.globalFont) {
+      document.documentElement.style.fontFamily = settings.design.globalFont;
+    }
+    // primaryColor support has been removed per admin request; we no
+    // longer mutate CSS variables for buttons or other elements. Keeping
+    // this effect small reduces side‑effects and prevents the mysterious
+    // disappearing buttons that arose when the value was blank.
+  }, [settings.design?.globalFont]);
 
   return (
-    <div className="text-foreground">
+    <div className="text-foreground" style={settings.design ? { fontFamily: settings.design.globalFont || undefined } : undefined}>
       {/* Hero */}
       <section className="py-16 px-6 bg-card text-center">
         <div className="max-w-6xl mx-auto flex flex-col items-center">
@@ -27,19 +108,29 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             className="text-4xl md:text-5xl font-bold mb-4"
           >
-            The <span className="text-primary">Social Intelligence Platform</span>
-            <br /> that helps you invest in a smart way
+            {settings.hero?.title ? (
+              settings.hero.title.split('\n').map((line: string, i: number) => (
+                <span key={i}>
+                  {line}
+                  <br />
+                </span>
+              ))
+            ) : (
+              <>
+                The <span className="text-primary">Social Intelligence Platform</span>
+                <br /> that helps you invest in a smart way
+              </>
+            )}
           </motion.h1>
           <p className="text-muted-foreground mb-6 max-w-2xl">
-            Go long or short? Go Etrade! Connect with experienced traders and
-            boost your trading journey.
+            {settings.hero?.subtitle || "Go long or short? Go Etrade! Connect with experienced traders and boost your trading journey."}
           </p>
           <Button asChild size="lg" className="px-8 py-3 text-lg mb-10">
-            <Link href="/signup">Join Now</Link>
+            <Link href="/signup">{settings.hero?.buttonText || "Join Now"}</Link>
           </Button>
           <div>
             <Image
-                src="/Home banner image.png"
+                src={settings.hero?.image || '/Home banner image.png'}
                 alt="Home banner"
                 width={1000}
                 height={600}
@@ -52,7 +143,14 @@ export default function Home() {
       {/* Stats */}
       <section className="py-16 px-6 bg-card">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {[{ label: "Countries", value: "150+" }, { label: "Accounts", value: "30M+" }, { label: "Leaders", value: "2M+" }].map((item, i) => (
+          {(settings.stats && settings.stats.length > 0
+            ? settings.stats
+            : [
+                { label: "Countries", value: "150+" },
+                { label: "Accounts", value: "30M+" },
+                { label: "Leaders", value: "2M+" },
+              ]
+          ).map((item: any, i: number) => (
             <Card key={i} className="rounded-2xl shadow">
               <CardContent className="p-6 text-center">
                 <div className="text-3xl font-bold text-primary">{item.value}</div>
@@ -67,27 +165,28 @@ export default function Home() {
       <section className="py-16 px-6 bg-background">
         <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
           <Image
-            src="/2nd image.png"
+            src={settings.trust?.image || '/2nd image.png'}
             alt="Trust"
             width={600}
             height={500}
             className="rounded-2xl w-full object-cover"
           />
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold">Trust is… Trading is not easy</h2>
+            <h2 className="text-3xl font-bold">{settings.trust?.title || "Trust is… Trading is not easy"}</h2>
             <ul className="space-y-4 text-muted-foreground">
-              <li className="flex items-start">
-                <CheckCircle className="h-6 w-6 text-primary mr-3 mt-1 flex-shrink-0" />
-                <span>Staying focused takes time</span>
-              </li>
-              <li className="flex items-start">
-                <CheckCircle className="h-6 w-6 text-primary mr-3 mt-1 flex-shrink-0" />
-                <span>Building and maintaining strategy is hard</span>
-              </li>
-              <li className="flex items-start">
-                <CheckCircle className="h-6 w-6 text-primary mr-3 mt-1 flex-shrink-0" />
-                <span>Many investors end up losing</span>
-              </li>
+              {(settings.trust?.points && settings.trust.points.length > 0
+                ? settings.trust.points
+                : [
+                    "Staying focused takes time",
+                    "Building and maintaining strategy is hard",
+                    "Many investors end up losing",
+                  ]
+              ).map((point: string, idx: number) => (
+                <li className="flex items-start" key={idx}>
+                  <CheckCircle className="h-6 w-6 text-primary mr-3 mt-1 flex-shrink-0" />
+                  <span>{point}</span>
+                </li>
+              ))}
             </ul>
           </div>
         </div>
@@ -96,35 +195,58 @@ export default function Home() {
       {/* Why Etrade */}
       <section className="py-16 px-6 bg-card">
         <div className="max-w-6xl mx-auto text-center mb-10">
-          <h2 className="text-3xl font-bold">Why Etrade?</h2>
-          <p className="text-muted-foreground mt-2">Powerful tools to grow your portfolio</p>
+          <h2 className="text-3xl font-bold">{settings.why?.title || "Why Etrade?"}</h2>
+          <p className="text-muted-foreground mt-2">{settings.why?.subtitle || "Powerful tools to grow your portfolio"}</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
-          {whyEtradeItems.map((item, i) => (
-            <Card 
-              key={i} 
-              className="rounded-2xl shadow-lg relative group transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 bg-cover bg-center" 
-              style={{ 
-                  height: '200px', 
-                  backgroundImage: "url('/cards.jpg')" 
-              }}
-            >
-              <div className="absolute top-0 right-0 w-20 h-20 bg-white/20 group-hover:bg-white/30 transition-colors rounded-bl-full">
-                  <item.icon className="w-7 h-7 text-white absolute top-6 right-6" />
+          {whyServices && whyServices.length > 0 ? (
+            whyServices.map((svc, i) => (
+              <div key={i} className="flex flex-col items-center text-center p-4">
+                {svc.icon && (
+                  <div className="w-16 h-16 mb-2">
+                    <Image src={svc.icon} width={64} height={64} alt={svc.title} />
+                  </div>
+                )}
+                <h3 className="font-semibold">{svc.title}</h3>
+                {svc.description && <p className="text-sm text-muted-foreground">{svc.description}</p>}
               </div>
-              <CardContent className="p-0 absolute bottom-6 left-6">
-                  <p className="text-xl font-semibold text-white max-w-[150px]">{item.text}</p>
-              </CardContent>
-            </Card>
-          ))}
+            ))
+          ) : (
+            (whyEtradeItems && Array.isArray(whyEtradeItems) && whyEtradeItems.length > 0
+              ? whyEtradeItems
+              : [
+                  "Copy trading to your fingertips",
+                  "Multiple asset access",
+                  "Integrated brokers",
+                  "Advanced analytics",
+                ]
+            ).map((item, i) => {
+              const text = typeof item === 'string' ? item : ((item as any)?.text || 'Feature');
+              return (
+                <div 
+                  key={i} 
+                  className="rounded-2xl shadow-lg relative group transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 h-52" 
+                  style={{ 
+                      backgroundImage: "url('/cards.jpg')",
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center'
+                  }}
+                >
+                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors rounded-2xl"></div>
+                <div className="relative z-10 p-6 absolute bottom-0 left-0 right-0">
+                  <p className="text-lg font-semibold text-white">{text}</p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
       {/* Leaders */}
       <section className="py-16 px-6 bg-background">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8">Etrade Top Leaders</h2>
+          <h2 className="text-3xl font-bold mb-8">{settings.leadersTitle || 'Etrade Top Leaders'}</h2>
           <div className="grid md:grid-cols-3 gap-6">
             {traders.slice(0, 3).map((trader) => (
               <Card key={trader.id} className="rounded-2xl shadow">
@@ -157,7 +279,7 @@ export default function Home() {
       {/* Instruments */}
       <section className="py-16 px-6 bg-card">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8 text-center">Wide variety of instruments</h2>
+          <h2 className="text-3xl font-bold mb-8 text-center">{settings.instrumentsTitle || 'Wide variety of instruments'}</h2>
           <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-6">
             {instruments.map((instrument) => (
                 <Card key={instrument.name} className="rounded-2xl shadow-md">
@@ -189,18 +311,23 @@ export default function Home() {
       {/* Benefits */}
       <section className="py-16 px-6 bg-background">
         <div className="max-w-6xl mx-auto text-center mb-10">
-          <h2 className="text-3xl font-bold">Benefits</h2>
-          <p className="text-muted-foreground mt-2">Everything you need for smarter trading</p>
+          <h2 className="text-3xl font-bold">{settings.benefits?.title || 'Benefits'}</h2>
+          {settings.benefits?.subtitle && (
+            <p className="text-muted-foreground mt-2">{settings.benefits.subtitle}</p>
+          )}
         </div>
         <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-          {[
-            "Transparent platform",
-            "Advanced tools",
-            "Innovative solutions",
-            "Customer support",
-            "Learning environment",
-            "Unique features",
-          ].map((item, i) => (
+          {(settings.benefits?.items && settings.benefits.items.length > 0
+            ? settings.benefits.items
+            : [
+                "Transparent platform",
+                "Advanced tools",
+                "Innovative solutions",
+                "Customer support",
+                "Learning environment",
+                "Unique features",
+              ]
+          ).map((item: string, i: number) => (
             <Card key={i} className="rounded-2xl shadow">
               <CardContent className="p-6 text-center">{item}</CardContent>
             </Card>

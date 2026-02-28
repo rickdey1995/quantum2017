@@ -61,7 +61,17 @@ export const LandingSettingsSchema = z.object({
   why: z.object({
     title: z.string(),
     subtitle: z.string().optional(),
+    // legacy simple list of bullet points (converted to services if present)
     items: z.array(z.string()).optional(),
+    services: z
+      .array(
+        z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          icon: z.string().optional(),
+        })
+      )
+      .optional(),
   }).optional(),
   leadersTitle: z.string().optional(),
   instrumentsTitle: z.string().optional(),
