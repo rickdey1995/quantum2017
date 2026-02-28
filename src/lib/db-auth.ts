@@ -6,7 +6,7 @@
 import { executeQuery, executeInsert, executeUpdate, executeDelete } from './db';
 import { hash, compare } from 'bcryptjs';
 import { randomUUID } from 'crypto';
-import { User, Subscription } from './schema';
+import { User, Subscription, Package } from './schema';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -29,12 +29,13 @@ export async function createUser(data: {
   email: string;
   password: string;
   name: string;
-  role?: 'admin' | 'user';
   plan?: 'Starter' | 'Pro' | 'Expert';
 }): Promise<User> {
   const id = randomUUID();
   const passwordHash = await hashPassword(data.password);
-  const role = data.role || 'user';
+  // role is always 'user' – admin accounts live in the separate admins
+  // table and are created with the create-admin script.
+  const role: 'user' = 'user';
   const plan = data.plan || 'Starter';
 
   const query = `
@@ -84,6 +85,40 @@ export async function getUserById(id: string): Promise<User | null> {
 
   const results = await executeQuery<User>(query, [id]);
   return results.length > 0 ? results[0] : null;
+}
+
+// Admin operations ------------------------------------------------------------------
+export async function getAdminById(id: string): Promise<User | null> {
+  // The returned type aligns with UserSchema; plan is optional and
+  // admin records don't normally have it. We default to undefined.
+  const query = `
+    SELECT id, email, name, role, status 
+    FROM admins 
+    WHERE id = ?
+  `;
+
+  const results = await executeQuery<{
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    status: string;
+  }>(query, [id]);
+
+  if (results.length === 0) {
+    return null;
+  }
+
+  const admin = results[0];
+  // Cast to User type; plan will be undefined and that's acceptable. We
+  // preserve the original role so that superadmins are distinguishable.
+  return {
+    id: admin.id,
+    email: admin.email,
+    name: admin.name,
+    role: (admin.role as 'admin' | 'superadmin'),
+    status: admin.status as 'Active' | 'Cancelled',
+  } as User;
 }
 
 export async function getUserWithPassword(
@@ -157,6 +192,21 @@ export async function getAllUsers(): Promise<User[]> {
   return executeQuery<User>(query);
 }
 
+// returns each user along with their active subscription renewal date (if any)
+export type UserWithSubscription = User & { renewal_date?: string };
+
+export async function getAllUsersWithSubscription(): Promise<UserWithSubscription[]> {
+  const query = `
+    SELECT u.id, u.email, u.name, u.role, u.plan, u.status, s.renewal_date
+    FROM users u
+    LEFT JOIN subscriptions s
+      ON s.user_id = u.id AND s.status = 'Active'
+    ORDER BY u.created_at DESC
+  `;
+
+  return executeQuery<UserWithSubscription>(query);
+}
+
 export async function updateLastLogin(id: string): Promise<void> {
   const query = 'UPDATE users SET last_login = NOW() WHERE id = ?';
   await executeUpdate(query, [id]);
@@ -178,6 +228,12 @@ export async function getSubscription(
   return results.length > 0 ? results[0] : null;
 }
 
+// helper to convert JS date to MySQL DATETIME string (no timezone)
+function toSqlDatetime(date: Date): string {
+  // produces "YYYY-MM-DD HH:MM:SS" which MySQL accepts
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export async function createSubscription(
   userId: string,
   plan: 'Starter' | 'Pro' | 'Expert'
@@ -192,7 +248,7 @@ export async function createSubscription(
     VALUES (?, ?, ?, 'Active', ?, NOW())
   `;
 
-  const values = [id, userId, plan, renewalDate.toISOString()];
+  const values = [id, userId, plan, toSqlDatetime(renewalDate)];
 
   await executeInsert(query, values);
 
@@ -221,7 +277,9 @@ export async function updateSubscription(
   }
   if (data.renewal_date !== undefined) {
     updates.push('renewal_date = ?');
-    values.push(data.renewal_date);
+    // convert if it's a date string or Date
+    const d = new Date(data.renewal_date);
+    values.push(toSqlDatetime(d));
   }
 
   if (updates.length === 0) return;
@@ -293,6 +351,25 @@ export async function deleteExpiredSessions(): Promise<void> {
   await executeDelete('DELETE FROM user_sessions WHERE expires_at <= NOW()');
 }
 
+// --- Site Settings Operations ---
+
+export async function getSiteSettings(): Promise<any | null> {
+  const query = `SELECT data FROM site_settings LIMIT 1`;
+  const results = await executeQuery<{ data: any }>(query);
+  return results.length > 0 ? results[0].data : null;
+}
+
+export async function updateSiteSettings(newData: any): Promise<void> {
+  // insert or update the single row
+  const existing = await getSiteSettings();
+  const json = JSON.stringify(newData);
+  if (existing) {
+    await executeUpdate(`UPDATE site_settings SET data = ?`, [json]);
+  } else {
+    await executeInsert(`INSERT INTO site_settings (data) VALUES (?)`, [json]);
+  }
+}
+
 // --- Audit Logging ---
 
 export async function logAuditAction(data: {
@@ -355,4 +432,286 @@ export async function updatePassword(
   const query = 'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
 
   await executeUpdate(query, [passwordHash, userId]);
+}
+// --- Landing Page Image Operations ---
+
+export interface LandingPageImageRecord {
+  id: string;
+  filename: string;
+  original_filename: string;
+  file_path: string;
+  file_size: number;
+  mime_type: string;
+  section: string;
+  uploaded_by: string;
+  upload_ip?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export async function saveLandingPageImage(data: {
+  filename: string;
+  original_filename: string;
+  file_path: string;
+  file_size: number;
+  mime_type: string;
+  section: string;
+  uploaded_by: string;
+  upload_ip?: string;
+}): Promise<LandingPageImageRecord> {
+  const id = randomUUID();
+
+  const query = `
+    INSERT INTO landing_page_images 
+    (id, filename, original_filename, file_path, file_size, mime_type, section, uploaded_by, upload_ip)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+
+  const values = [
+    id,
+    data.filename,
+    data.original_filename,
+    data.file_path,
+    data.file_size,
+    data.mime_type,
+    data.section,
+    data.uploaded_by,
+    data.upload_ip || null,
+  ];
+
+  await executeInsert(query, values);
+
+  return {
+    id,
+    filename: data.filename,
+    original_filename: data.original_filename,
+    file_path: data.file_path,
+    file_size: data.file_size,
+    mime_type: data.mime_type,
+    section: data.section,
+    uploaded_by: data.uploaded_by,
+    upload_ip: data.upload_ip,
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+}
+
+export async function getLandingPageImages(section?: string): Promise<LandingPageImageRecord[]> {
+  let query = `SELECT * FROM landing_page_images`;
+  const values: any[] = [];
+
+  if (section) {
+    query += ` WHERE section = ?`;
+    values.push(section);
+  }
+
+  query += ` ORDER BY created_at DESC`;
+
+  return executeQuery<LandingPageImageRecord>(query, values);
+}
+
+export async function getLandingPageImageById(id: string): Promise<LandingPageImageRecord | null> {
+  const query = `SELECT * FROM landing_page_images WHERE id = ?`;
+  const results = await executeQuery<LandingPageImageRecord>(query, [id]);
+  return results.length > 0 ? results[0] : null;
+}
+
+export async function deleteLandingPageImage(id: string): Promise<void> {
+  const query = `DELETE FROM landing_page_images WHERE id = ?`;
+  await executeDelete(query, [id]);
+}
+
+// --- Package Operations ---
+
+export async function createPackage(data: {
+  name: string;
+  description?: string;
+  price: number;
+  currency?: string;
+  features?: string[];
+  display_order?: number;
+  created_by?: string | null;
+}): Promise<Package> {
+  const id = randomUUID();
+  const currency = data.currency || 'USD';
+  const displayOrder = data.display_order ?? 0;
+  const features = data.features ? JSON.stringify(data.features) : null;
+
+  const query = `
+    INSERT INTO packages 
+    (id, name, description, price, currency, features, display_order, created_by, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+  `;
+
+  const values = [
+    id,
+    data.name,
+    data.description || null,
+    data.price,
+    currency,
+    features,
+    displayOrder,
+    data.created_by || null,
+  ];
+
+  try {
+    await executeInsert(query, values);
+
+    return {
+      id,
+      name: data.name,
+      description: data.description,
+      price: data.price,
+      currency,
+      features: data.features,
+      active: true,
+      display_order: displayOrder,
+      created_by: data.created_by,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  } catch (error: any) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw new Error(`Package "${data.name}" already exists`);
+    }
+    throw error;
+  }
+}
+
+export async function getAllPackages(activeOnly: boolean = false): Promise<Package[]> {
+  let query = `SELECT * FROM packages`;
+  const values: any[] = [];
+
+  if (activeOnly) {
+    query += ` WHERE active = TRUE`;
+  }
+
+  query += ` ORDER BY display_order ASC, created_at DESC`;
+
+  const results = await executeQuery<any>(query, values);
+  return results.map(pkg => {
+    let features: string[] = [];
+    if (pkg.features) {
+      try {
+        features = JSON.parse(pkg.features);
+      } catch (e) {
+        // fallback: treat raw string as single feature if JSON is invalid
+        features = [pkg.features];
+        console.warn('Invalid JSON in package.features for id', pkg.id, e);
+      }
+    }
+    return { ...pkg, features };
+  });
+}
+
+export async function getPackageById(id: string): Promise<Package | null> {
+  const query = `SELECT * FROM packages WHERE id = ?`;
+  const results = await executeQuery<any>(query, [id]);
+
+  if (results.length === 0) return null;
+
+  const pkg = results[0];
+  let features: string[] = [];
+  if (pkg.features) {
+    try {
+      features = JSON.parse(pkg.features);
+    } catch (e) {
+      features = [pkg.features];
+      console.warn('Invalid JSON in package.features for id', pkg.id, e);
+    }
+  }
+  return { ...pkg, features };
+}
+
+export async function getPackageByName(name: string): Promise<Package | null> {
+  const query = `SELECT * FROM packages WHERE name = ?`;
+  const results = await executeQuery<any>(query, [name]);
+
+  if (results.length === 0) return null;
+
+  const pkg = results[0];
+  let features: string[] = [];
+  if (pkg.features) {
+    try {
+      features = JSON.parse(pkg.features);
+    } catch (e) {
+      features = [pkg.features];
+      console.warn('Invalid JSON in package.features for id', pkg.id, e);
+    }
+  }
+  return { ...pkg, features };
+}
+
+export async function updatePackage(
+  id: string,
+  data: {
+    name?: string;
+    description?: string;
+    price?: number;
+    currency?: string;
+    features?: string[];
+    active?: boolean;
+    display_order?: number;
+  }
+): Promise<Package | null> {
+  const updates: string[] = [];
+  const values: any[] = [];
+
+  if (data.name !== undefined) {
+    updates.push('name = ?');
+    values.push(data.name);
+  }
+  if (data.description !== undefined) {
+    updates.push('description = ?');
+    values.push(data.description || null);
+  }
+  if (data.price !== undefined) {
+    updates.push('price = ?');
+    values.push(data.price);
+  }
+  if (data.currency !== undefined) {
+    updates.push('currency = ?');
+    values.push(data.currency);
+  }
+  if (data.features !== undefined) {
+    updates.push('features = ?');
+    values.push(JSON.stringify(data.features));
+  }
+  if (data.active !== undefined) {
+    updates.push('active = ?');
+    values.push(data.active);
+  }
+  if (data.display_order !== undefined) {
+    updates.push('display_order = ?');
+    values.push(data.display_order);
+  }
+
+  if (updates.length === 0) {
+    return getPackageById(id);
+  }
+
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(id);
+
+  const query = `UPDATE packages SET ${updates.join(', ')} WHERE id = ?`;
+
+  try {
+    await executeUpdate(query, values);
+    return getPackageById(id);
+  } catch (error: any) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw new Error('A package with this name already exists');
+    }
+    throw error;
+  }
+}
+
+export async function deletePackage(id: string): Promise<void> {
+  const query = `DELETE FROM packages WHERE id = ?`;
+  await executeDelete(query, [id]);
+}
+
+export async function updatePackageDisplayOrder(id: string, order: number): Promise<void> {
+  const query = `UPDATE packages SET display_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+  await executeUpdate(query, [order, id]);
 }

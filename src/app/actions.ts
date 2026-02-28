@@ -5,14 +5,23 @@ import {
   updateUser,
   deleteUser,
   getAllUsers,
+  // extended list
+  getAllUsersWithSubscription,
   createUser,
   getSubscription,
   createSubscription,
   updateSubscription,
   logAuditAction,
   updatePassword,
+  updateSiteSettings,
+  getSiteSettings,
+  createPackage,
+  getAllPackages,
+  getPackageById,
+  updatePackage,
+  deletePackage,
 } from '@/lib/db-auth';
-import { UserSchema, type User, type Subscription } from '@/lib/schema';
+import { UserSchema, type User, type Subscription, type Package } from '@/lib/schema';
 import { revalidatePath } from 'next/cache';
 import { verifyJWT } from '@/lib/jwt';
 
@@ -39,7 +48,8 @@ async function verifyAdminRole(token: string) {
   }
   try {
     const payload = await verifyJWT(token);
-    if (payload && payload.role === 'admin') {
+    // accept both admin and superadmin roles
+    if (payload && (payload.role === 'admin' || payload.role === 'superadmin')) {
       return payload.userId;
     }
   } catch (error) {
@@ -145,6 +155,12 @@ export async function getUsers(token: string): Promise<User[]> {
   return getAllUsers();
 }
 
+// new action used by admin dashboard to include renewal date
+export async function getUsersWithSubscriptions(token: string): Promise<(User & { renewal_date?: string })[]> {
+  await verifyAdminRole(token);
+  return getAllUsersWithSubscription();
+}
+
 export async function addUser(
   token: string,
   data: {
@@ -166,7 +182,6 @@ export async function addUser(
     email: data.email,
     password: data.password,
     plan: data.plan,
-    role: 'user',
   });
 
   // Log the action
@@ -217,6 +232,30 @@ export async function deleteUserAction(token: string, userId: string) {
   revalidatePath('/admin/dashboard');
 }
 
+// --- Landing Page / Site Settings (admin only) ---
+
+export async function getLandingSettings(): Promise<any> {
+  // no authentication; public read
+  return await getSiteSettings();
+}
+
+export async function updateLandingSettings(
+  token: string,
+  settings: any
+) {
+  await verifyAdminRole(token);
+  await updateSiteSettings(settings);
+
+  // log audit entry
+  await logAuditAction({
+    action: 'landing_settings_updated',
+    entityType: 'site_settings',
+    changes: settings,
+  });
+
+  revalidatePath('/');
+}
+
 // --- Admin Account Settings ---
 
 export async function changeAdminPassword(
@@ -239,4 +278,193 @@ export async function changeAdminPassword(
 
   revalidatePath('/admin/dashboard');
   return { success: true, message: 'Password changed successfully' };
+}
+// --- Package Management ---
+
+export async function getPackagesAction(): Promise<Package[]> {
+  // Public read - no authentication needed
+  return getAllPackages(false);
+}
+
+export async function getActivePackagesAction(): Promise<Package[]> {
+  // Public read - get only active packages
+  return getAllPackages(true);
+}
+
+export async function createPackageAction(
+  token: string,
+  data: {
+    name: string;
+    description?: string;
+    price: number;
+    currency?: string;
+    features?: string[];
+    display_order?: number;
+  }
+) {
+  const userId = await verifyAdminRole(token);
+
+  const pkg = await createPackage({
+    ...data,
+    created_by: null, // Admin ID is tracked in audit logs, not in users table
+  });
+
+  // Log the action
+  await logAuditAction({
+    userId,
+    action: 'package_created',
+    entityType: 'package',
+    entityId: pkg.id,
+    changes: { name: pkg.name, price: pkg.price },
+  });
+
+  revalidatePath('/admin/dashboard');
+  revalidatePath('/');
+  return pkg;
+}
+
+export async function updatePackageAction(
+  token: string,
+  packageId: string,
+  data: {
+    name?: string;
+    description?: string;
+    price?: number;
+    currency?: string;
+    features?: string[];
+    active?: boolean;
+    display_order?: number;
+  }
+) {
+  const userId = await verifyAdminRole(token);
+
+  const pkg = await updatePackage(packageId, data);
+
+  if (!pkg) {
+    throw new Error('Package not found');
+  }
+
+  // Log the action
+  await logAuditAction({
+    userId,
+    action: 'package_updated',
+    entityType: 'package',
+    entityId: packageId,
+    changes: data,
+  });
+
+  revalidatePath('/admin/dashboard');
+  revalidatePath('/');
+  return pkg;
+}
+
+export async function deletePackageAction(
+  token: string,
+  packageId: string
+) {
+  const userId = await verifyAdminRole(token);
+
+  const pkg = await getPackageById(packageId);
+  if (!pkg) {
+    throw new Error('Package not found');
+  }
+
+  await deletePackage(packageId);
+
+  // Log the action
+  await logAuditAction({
+    userId,
+    action: 'package_deleted',
+    entityType: 'package',
+    entityId: packageId,
+    changes: { name: pkg.name },
+  });
+
+  revalidatePath('/admin/dashboard');
+  revalidatePath('/');
+}
+
+// --- Default Packages Seeding ---
+
+export async function seedDefaultPackagesAction(token: string) {
+  const userId = await verifyAdminRole(token);
+
+  // Check if packages already exist
+  const existingPackages = await getAllPackages(false);
+  if (existingPackages.length > 0) {
+    throw new Error(`Database already has ${existingPackages.length} package(s). Delete existing packages first to re-seed.`);
+  }
+
+  const defaultPackages = [
+    {
+      name: 'Desktop Software',
+      description: 'Manage Yourself - Desktop Software for DIY traders with Community Access',
+      price: 4999,
+      currency: '₹',
+      features: [
+        'Desktop Software',
+        'DIY',
+        'Community Access',
+        'Manage Yourself',
+        'Local Execution',
+      ],
+      display_order: 0,
+    },
+    {
+      name: 'Auto Server',
+      description: 'Fully Automated Server based execution for hands-free trading',
+      price: 5999,
+      currency: '₹',
+      features: [
+        'Fully Automated',
+        'Server based Execution',
+        'Priority Support',
+        '24/7 Monitoring',
+        'Execution Management',
+      ],
+      display_order: 1,
+    },
+    {
+      name: 'Hybrid Plan',
+      description: 'Combination of Desktop Software and Server Execution',
+      price: 7999,
+      currency: '₹',
+      features: [
+        'Desktop Software',
+        'Server Execution',
+        'Advanced Analytics',
+        'Priority Support',
+        'API Access',
+        'Custom Strategies',
+      ],
+      display_order: 2,
+    },
+  ];
+
+  const createdPackages: Package[] = [];
+
+  for (const pkgData of defaultPackages) {
+    const pkg = await createPackage({
+      ...pkgData,
+      created_by: null, // Admin ID is tracked in audit logs
+    });
+    createdPackages.push(pkg);
+  }
+
+  // Log the seed action
+  await logAuditAction({
+    userId,
+    action: 'packages_seeded',
+    entityType: 'package',
+    changes: { count: createdPackages.length, packages: createdPackages.map(p => p.name) },
+  });
+
+  revalidatePath('/admin/dashboard');
+  revalidatePath('/');
+
+  return {
+    success: true,
+    message: `Successfully created ${createdPackages.length} default packages`,
+    packages: createdPackages,
+  };
 }
